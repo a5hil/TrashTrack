@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "antd/dist/reset.css";
 
 :root {
   --background: #ffffff;
@@ -8,8 +9,23 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+  --color-primary: #13ec5b;
+  --color-primary-dark: #0ea641;
+  --color-background-light: #f6f8f6;
+  --color-background-dark: #102216;
+  --color-surface-light: #ffffff;
+  --color-surface-dark: #1a3323;
+  --color-text-main: #0d1b12;
+  --color-text-main-dark: #e0ece4;
+  --color-border-light: #cfe7d7;
+  --color-border-dark: #2a4a35;
+  --font-display: Inter, sans-serif;
+  --radius: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
 }
 
 @media (prefers-color-scheme: dark) {
