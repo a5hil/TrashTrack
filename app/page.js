@@ -3,12 +3,16 @@
 import { Form, Input, Button, Checkbox } from 'antd';
 import { MailOutlined, LockOutlined, EyeInvisibleOutlined, EyeOutlined, LoginOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const router = useRouter();
 
   const onFinish = (values) => {
     console.log('Success:', values);
+    // Redirect to dashboard after successful login
+    router.push('/dashboard');
   };
 
   const onFinishFailed = (errorInfo) => {
