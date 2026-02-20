@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { Drawer } from 'vaul';
 import { Recycle, Trash2, Leaf, AlertTriangle, Battery, Cross, BarChart3, Clock, MapPin, Map, CheckCircle2, Copy, AlertCircle, MoreHorizontal, Info, Check } from 'lucide-react';
 import { Layout, Input, Button, Avatar, Badge, Tooltip, Modal, Form, Select, Card, List, Tag, Space, message } from 'antd';
-import { binAPI } from '@/lib/api';
+import { binAPI, wasteAPI } from '@/lib/api';
 import {
   SearchOutlined,
   BellOutlined,
@@ -27,7 +27,7 @@ import {
 const { Header } = Layout;
 
 // Dynamically import the map component with no SSR
-const MapComponent = dynamic(() => import('./MapComponent'), {
+const MapComponent = dynamic(() => import('@/app/ui/MapComponent'), {
   ssr: false,
   loading: () => <div className="h-full w-full flex items-center justify-center bg-slate-200">Loading map...</div>
 });
@@ -38,12 +38,17 @@ export default function AdminDashboard() {
   const [userLocation, setUserLocation] = useState(null);
   const [isAddBinModalOpen, setIsAddBinModalOpen] = useState(false);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
+  const [isWasteReportsModalOpen, setIsWasteReportsModalOpen] = useState(false);
   const [bins, setBins] = useState([]);
+  const [wasteHotspots, setWasteHotspots] = useState([]);
   const [form] = Form.useForm();
   const [selectedCoordinates, setSelectedCoordinates] = useState(null);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [isDetailsDrawerOpen, setIsDetailsDrawerOpen] = useState(false);
   const [isSelectingLocation, setIsSelectingLocation] = useState(false);
+  const [showBins, setShowBins] = useState(true);
+  const [showWasteReports, setShowWasteReports] = useState(true);
+  const [showHighDensityAreas, setShowHighDensityAreas] = useState(true);
 
   // Helper function to get category icon
   const getCategoryIcon = (category, className = "w-6 h-6") => {
@@ -99,7 +104,40 @@ export default function AdminDashboard() {
     };
 
     fetchBins();
+
+    // Fetch waste hotspot reports
+    const fetchWasteHotspots = async () => {
+      try {
+        const response = await wasteAPI.getWasteHotspots();
+        console.log('Waste hotspots response:', response);
+        if (response.success) {
+          setWasteHotspots(response.clusteredData || []);
+          console.log('Set waste hotspots:', response.clusteredData);
+        }
+      } catch (error) {
+        console.error('Error fetching waste hotspots:', error);
+        message.error('Failed to load waste hotspot reports');
+      }
+    };
+
+    fetchWasteHotspots();
   }, []);
+
+  const handleRefreshReports = async () => {
+    try {
+      message.loading('Refreshing reports...', 0);
+      const response = await wasteAPI.getWasteHotspots();
+      if (response.success) {
+        setWasteHotspots(response.clusteredData || []);
+        message.destroy();
+        message.success(`Found ${(response.clusteredData || []).length} waste hotspot clusters`);
+      }
+    } catch (error) {
+      message.destroy();
+      console.error('Error refreshing reports:', error);
+      message.error('Failed to refresh reports');
+    }
+  };
 
   const handleLocationClick = () => {
     if (userLocation) {
@@ -351,13 +389,75 @@ export default function AdminDashboard() {
             mapZoom={mapZoom}
             userLocation={userLocation}
             handleMarkerClick={handleMarkerClick}
-            bins={bins}
+            bins={showBins ? bins : []}
             getBinColor={getBinColor}
             handleMapClick={handleMapClick}
             handleMarkerDetailsOpen={handleMarkerDetailsOpen}
             selectedCoordinates={selectedCoordinates}
             isSelectingLocation={isSelectingLocation}
+            wasteReports={showWasteReports ? wasteHotspots.flatMap((hotspot) => hotspot.reports || []) : []}
           />
+
+          {/* High-Density Area Overlay */}
+          {showHighDensityAreas && (
+            <div className="absolute inset-0 pointer-events-none z-[200]">
+              {wasteHotspots.map((hotspot, idx) => {
+                // Simple projection: convert lat/lng to approximate pixel positions
+                // using center of map as reference
+                const centerLat = mapCenter[0];
+                const centerLng = mapCenter[1];
+                
+                // Calculate pixel offset from map center
+                // This is a simplified calculation for demonstration
+                const latDiff = hotspot.coordinates.latitude - centerLat;
+                const lngDiff = hotspot.coordinates.longitude - centerLng;
+                
+                // Scale based on zoom level (higher zoom = more pixels per degree)
+                const pixelScale = 256 * Math.pow(2, mapZoom) / 360;
+                const xOffset = lngDiff * pixelScale;
+                const yOffset = latDiff * pixelScale * -1; // Negative because y increases downward
+                
+                // Map size is approximately the container size
+                const centerX = window.innerWidth / 2 - 380; // Adjusted for container
+                const centerY = window.innerHeight / 2 - 180;
+                
+                // Determine circle size based on report count and priority
+                let circleSize = 40;
+                let circleColor = '#fbbf24'; // yellow
+                let opacity = 0.4;
+                
+                if (hotspot.priority === 'high') {
+                  circleSize = 80;
+                  circleColor = '#ef4444'; // red
+                  opacity = 0.5;
+                } else if (hotspot.priority === 'medium') {
+                  circleSize = 60;
+                  circleColor = '#f97316'; // orange
+                  opacity = 0.45;
+                }
+                
+                return (
+                  <div
+                    key={idx}
+                    className="absolute rounded-full transition-all"
+                    style={{
+                      width: `${circleSize}px`,
+                      height: `${circleSize}px`,
+                      backgroundColor: circleColor,
+                      opacity: opacity,
+                      border: `2px solid ${circleColor}`,
+                      left: `calc(50% + ${xOffset}px)`,
+                      top: `calc(50% + ${yOffset}px)`,
+                      transform: 'translate(-50%, -50%)',
+                      boxShadow: `0 0 ${circleSize / 2}px ${circleColor}`,
+                      pointerEvents: 'none',
+                    }}
+                    title={`${hotspot.priority.toUpperCase()} - ${hotspot.reportCount} reports`}
+                  />
+                );
+              })}
+            </div>
+          )}
 
           {/* Floating Map Controls */}
           <div className="absolute top-6 left-6 flex flex-col gap-2 z-[400]">
@@ -383,6 +483,50 @@ export default function AdminDashboard() {
                 onClick={handleLocationClick}
               />
             </Tooltip>
+
+            {/* Filter Panel */}
+            <div className="bg-white rounded-lg shadow-lg p-3 flex flex-col gap-3 min-w-[220px]">
+              <div className="text-xs font-bold text-slate-600 uppercase tracking-wide">Map Filters</div>
+              
+              <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                <input 
+                  type="checkbox" 
+                  checked={showBins}
+                  onChange={(e) => setShowBins(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span className="text-sm text-slate-700">Show Bins</span>
+                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded ml-auto">
+                  {bins.length}
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                <input 
+                  type="checkbox" 
+                  checked={showWasteReports}
+                  onChange={(e) => setShowWasteReports(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span className="text-sm text-slate-700">Waste Reports</span>
+                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded ml-auto">
+                  {wasteHotspots.length}
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                <input 
+                  type="checkbox" 
+                  checked={showHighDensityAreas}
+                  onChange={(e) => setShowHighDensityAreas(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span className="text-sm text-slate-700">High Density Areas</span>
+                <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded ml-auto">
+                  ●
+                </span>
+              </label>
+            </div>
           </div>
 
           {/* Action Buttons */}
@@ -394,6 +538,24 @@ export default function AdminDashboard() {
                 onClick={() => setIsListModalOpen(true)}
               >
                 Bins ({bins.length})
+              </Button>
+            </Tooltip>
+            <Tooltip title="View Waste Reports" placement="left">
+              <Button 
+                className="h-10 bg-orange-50 rounded-lg shadow-lg flex items-center gap-2 font-medium text-orange-700 border-none hover:bg-orange-100"
+                icon={<AlertTriangle className="w-4 h-4" />}
+                onClick={() => setIsWasteReportsModalOpen(true)}
+              >
+                Reports ({wasteHotspots.length})
+              </Button>
+            </Tooltip>
+            <Tooltip title="Refresh Reports" placement="left">
+              <Button 
+                className="h-10 bg-orange-50 rounded-lg shadow-lg font-medium text-orange-700 border-none hover:bg-orange-100 px-3"
+                icon={<MoreOutlined />}
+                onClick={handleRefreshReports}
+              >
+                Refresh
               </Button>
             </Tooltip>
             <Tooltip title="Add New Bin" placement="left">
@@ -716,7 +878,106 @@ export default function AdminDashboard() {
         )}
       </Modal>
 
-      {/* Desktop Details Panel */}
+      {/* Waste Hotspot Reports Modal */}
+      <Modal
+        title={
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-orange-600" />
+            <span>Waste Hotspot Reports</span>
+            <Tag color="orange">{wasteHotspots.length} Locations</Tag>
+          </div>
+        }
+        open={isWasteReportsModalOpen}
+        onCancel={() => setIsWasteReportsModalOpen(false)}
+        footer={null}
+        width={750}
+      >
+        {wasteHotspots.length === 0 ? (
+          <div className="text-center py-12">
+            <AlertTriangle className="text-6xl text-slate-300 mb-4 inline-block" />
+            <p className="text-slate-500 mb-4">No waste reports yet</p>
+            <p className="text-slate-400 text-sm">Users can report waste hotspots from the Find Bins page</p>
+          </div>
+        ) : (
+          <List
+            className="mt-4"
+            dataSource={wasteHotspots}
+            renderItem={(hotspot, index) => (
+              <List.Item
+                actions={[
+                  <Button
+                    type="link"
+                    onClick={() => {
+                      setMapCenter([hotspot.coordinates.latitude, hotspot.coordinates.longitude]);
+                      setMapZoom(18);
+                      setIsWasteReportsModalOpen(false);
+                    }}
+                  >
+                    View on Map
+                  </Button>
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={
+                    <div 
+                      className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                        hotspot.priority === 'high' ? 'bg-red-500' :
+                        hotspot.priority === 'medium' ? 'bg-orange-500' :
+                        'bg-yellow-500'
+                      }`}
+                    >
+                      {hotspot.reportCount}
+                    </div>
+                  }
+                  title={
+                    <Space>
+                      <span className="font-semibold">Report Cluster #{index + 1}</span>
+                      <Tag color={
+                        hotspot.priority === 'high' ? 'red' :
+                        hotspot.priority === 'medium' ? 'orange' :
+                        'gold'
+                      }>
+                        {hotspot.priority.toUpperCase()} PRIORITY
+                      </Tag>
+                      {hotspot.reportCount >= 3 && (
+                        <Tag color="red">⚠️ {hotspot.reportCount} reports</Tag>
+                      )}
+                      {hotspot.reportCount === 2 && (
+                        <Tag color="orange">📍 {hotspot.reportCount} reports</Tag>
+                      )}
+                    </Space>
+                  }
+                  description={
+                    <div className="space-y-2">
+                      <div className="text-xs text-slate-600 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        <span className="font-mono">{hotspot.coordinates.latitude.toFixed(4)}°, {hotspot.coordinates.longitude.toFixed(4)}°</span>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Cluster Radius: {hotspot.clusterRadius}m
+                      </div>
+                      {hotspot.reports.length > 0 && (
+                        <div className="text-xs text-slate-600 mt-2">
+                          <p className="font-medium text-slate-700 mb-1">Recent Reports:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {hotspot.reports.slice(0, 3).map((report, i) => (
+                              <li key={i}>
+                                <span className="text-slate-600">
+                                  {report.description || 'Waste accumulation'} ({new Date(report.reportedAt).toLocaleDateString()})
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Modal>
       {selectedMarker && (
         <div className="hidden md:block fixed left-4 top-24 bottom-4 w-96 bg-[#f6f8f6] rounded-2xl shadow-2xl border border-slate-200 z-[600] overflow-hidden">
           <div className="flex flex-col h-full overflow-y-auto">

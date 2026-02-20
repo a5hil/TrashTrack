@@ -74,19 +74,23 @@ const BinSchema = new mongoose.Schema(
 BinSchema.index({ 'coordinates.coordinates': '2dsphere' });
 
 // Update the latitude and longitude fields before saving
-BinSchema.pre('save', async function(next) {
+BinSchema.pre('save', async function() {
   try {
     if (this.coordinates && this.coordinates.coordinates && Array.isArray(this.coordinates.coordinates)) {
       this.longitude = this.coordinates.coordinates[0];
       this.latitude = this.coordinates.coordinates[1];
     }
-    next();
   } catch (error) {
     console.error('Pre-save hook error:', error);
-    next(error);
+    throw error;
   }
 });
 
-const Bin = mongoose.models.Bin || mongoose.model('Bin', BinSchema);
+// Delete the model if it exists to prevent cache from using old version (specifically for dev hot reload)
+if (mongoose.models.Bin) {
+  delete mongoose.models.Bin;
+}
+
+const Bin = mongoose.model('Bin', BinSchema);
 
 export default Bin;
