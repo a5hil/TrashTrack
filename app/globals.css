@@ -47,6 +47,11 @@ body {
   border: none !important;
 }
 
+.custom-bin-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
 /* Leaflet popup customization */
 .leaflet-popup-content-wrapper {
   border-radius: 8px;
